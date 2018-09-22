@@ -1,5 +1,5 @@
 const glob = require('glob')
-const comments = require('parse-comments')
+const extract = require('extract-comments')
 const fs = require('fs')
 const path = require('path')
 
@@ -30,8 +30,9 @@ module.exports = async function searchLicenses(inputGlob, options) {
 }
 
 function searchLicenseComments(str) {
-    return comments(str).map(x => x.comment.content)
-                        .filter(x => x.match(/v?\d+?(?:\.\d+?){2}|copyright|license|warrant|liabilit|™|®|\(C\)/gim))
+    return extract(str)
+        .map(x => x.raw)
+        .filter(x => x.match(/v?\d+?(?:\.\d+?){2}|copyright|license|warrant|liabilit|™|®|\(C\)/gim))
 }
 
 function toHTML(str) {
