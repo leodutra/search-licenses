@@ -26,7 +26,7 @@ module.exports = async function searchLicenses(inputGlob, options) {
             toHTML(licenses[key].license)
         ])
     })
-    await writeResults(createTable(['Files', 'License'], tableRows))
+    await writeResults(buildHTML(['Files', 'License'], tableRows))
 }
 
 function searchLicenseComments(str) {
@@ -53,22 +53,26 @@ function keywordsToHTMLBold(str) {
     })
 }
 
-function createTable(headers, rows) {
+function buildHTML(tableHeaders, tableRows) {
     return `
-        <table border="1">
-            <thead>
-                <tr>
-                    ${mapToHTMLTags('th', headers)}
-                </tr>
-            </thead>
-            <tbody>
-                ${rows.map(tr => `
+        <!DOCTYPE html>
+        <head><title>Search license results</title></head>
+        <body>
+            <table border="1">
+                <thead>
                     <tr>
-                        ${mapToHTMLTags('td', tr)}
+                        ${mapToHTMLTags('th', tableHeaders)}
                     </tr>
-                `).join('\n')}
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    ${tableRows.map(tr => `
+                        <tr>
+                            ${mapToHTMLTags('td', tr)}
+                        </tr>
+                    `).join('\n')}
+                </tbody>
+            </table>
+        </body>
     `
 }
 
