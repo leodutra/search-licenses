@@ -32,7 +32,7 @@ module.exports = async function searchLicenses(inputGlob, options) {
 function searchLicenseComments(str) {
     return extract(str)
         .map(x => x.raw)
-        .filter(x => x.match(/v?\d+?(?:\.\d+?){2}|copyright|license|warrant|liabilit|™|®|\(C\)/gim))
+        .filter(x => x.match(/v?\d+?(?:\.\d+?){2}|copy\s*?right|license|rights\s+?reserved|warrant|liabilit|™|®|\(C\)/gim))
 }
 
 function toHTML(str) {
@@ -48,7 +48,7 @@ function buildLicenseKey(str) {
 }
 
 function keywordsToHTMLBold(str) {
-    return str.replace(/v?\d+?(?:\.\d+?){2}|(copyright|license|warrant|liabilit)\w*|™|®|\(C\)/gim, function(x) {
+    return str.replace(/v?\d+?(?:\.\d+?){2}|(copy\s*?right|license|rights\s+?reserved|warrant|liabilit)\w*|™|®|\(C\)/gim, function(x) {
         return `<b style="background-color: yellow">${x}</b>`
     })
 }
