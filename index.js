@@ -38,6 +38,7 @@ async function parallelSearch(files) {
         let licenses = {}
         let lastIndex = 0
         let responseCount = 0
+        console.log(`Master will start ${numChunks}`)
         try {
             for (let i = 0; i < numChunks; i++) {
                 const worker = cluster.fork()
