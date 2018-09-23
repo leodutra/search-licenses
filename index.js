@@ -17,18 +17,24 @@ if (!cluster.isMaster) {
 }
 
 module.exports = async function searchLicenses(inputGlob, options) {
-    if (!cluster.isMaster) return
+    if (!cluster.isMaster) return 
     console.log('Finding files...')
     const files = await matchFiles(inputGlob, options)  
     const licenses = await parallelSearch(files.sort())
     const tableRows = []
-    Object.keys(licenses).sort().forEach(key => {
+    Object.keys(licenses).sort(sortByCleanText).forEach(key => {
         tableRows.push([
             licenses[key].files.join('<br>'),
             keywordsToHTMLBold(toHTML(licenses[key].license))
         ])
     })
     await writeResults(buildHTML(['Files', 'License'], tableRows))
+}
+
+function sortByCleanText(a, b) {
+    a = a.replace(/\W+/gm, '').toLowerCase()
+    b = b.replace(/\W+/gm, '').toLowerCase()
+    return a < b ? -1 : a > b ? 1 : 0
 }
 
 async function parallelSearch(files) {
