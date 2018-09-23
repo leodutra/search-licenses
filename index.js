@@ -20,7 +20,7 @@ module.exports = async function searchLicenses(inputGlob, options) {
     if (!cluster.isMaster) return
     console.log('Finding files...')
     const files = await matchFiles(inputGlob, options)  
-    const licenses = await parallelSearch(files)
+    const licenses = await parallelSearch(files.sort())
     const tableRows = []
     Object.keys(licenses).sort().forEach(key => {
         tableRows.push([
@@ -67,7 +67,7 @@ function calculateChunkSize(numUnits, numChunks, chunkNumber) {
 async function proccessFiles(files) {
     const licenses = {}
     await Promise.all(
-        files.sort().map(async file => {
+        files.map(async file => {
             console.log(`Processing ${file} (PID ${process.pid})`)
             const data = await readFile(file, 'utf8')
             searchLicenseComments(data).forEach(license => {
