@@ -34,7 +34,7 @@ module.exports = async function searchLicenses(inputGlob, options) {
 async function parallelSearch(files) {
     console.log(`Master ${process.pid} is running`)
     return new Promise((resolve, reject) => {
-        const numChunks = files.length < numCPUs ? 1 : numCPUs
+        const numChunks = files.length < numCPUs ? files.length : numCPUs
         let licenses = {}
         let lastIndex = 0
         let responseCount = 0
