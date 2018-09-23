@@ -83,25 +83,37 @@ async function proccessFiles(files) {
 }
 
 function searchLicenseComments(str) {
-    return extract(str)
-        .map(x => x.raw)
-        .filter(x => x.match(/v?\d+?(?:\.\d+?){2}|copy\s*?right|license|rights\s+?reserved|warrant|liabilit|™|®|\(C\)/gim))
+    const result = []
+    const regex = /v?\d+?(?:\.\d+?){2}|copy\s*?right|license|rights\s+?reserved|warrant|liabilit|™|®|\(C\)/gim
+    const comments = extract(str)
+    for(let i = 0, l = comments.length; i < l; i++) {
+        regex.lastIndex = 0
+        if (comments[i].raw.match(regex)) {
+            result.push(comments[i].raw)
+        }
+    }
+    return result
 }
 
-function toHTML(str) {
-    return str.replace(/</gm, '&lt;')
-            .replace(/>/gm, '&gt;')
-            .replace(/r?\n/g, '<br>')
+
+const htmlSubstitutions = {
+    '<': '&lt;',
+    '>': '&lt;',
+    '\r\n': '<br>',
+    '\n': '<br>'
+}
+function toHTML(str) {   
+    return str.replace(/(?:<|>|\r?\n)/gm, x => htmlSubstitutions[x])
 }
 
 function buildLicenseKey(str) {
-    return str.replace(/\r?\n/gm, ' ').replace(/\s+/g, ' ').trim()
+    return str.replace(/(?:\s+|\r?\n)/gm, ' ').trim()
 }
 
 function keywordsToHTMLBold(str) {
-    return str.replace(/v?\d+?(?:\.\d+?){2}|(copy\s*?right|license|rights\s+?reserved|warrant|liabilit)\w*|™|®|\(C\)/gim, function(x) {
-        return `<b style="background-color: yellow">${x}</b>`
-    })
+    return str.replace(/v?\d+?(?:\.\d+?){2}|(copy\s*?right|license|rights\s+?reserved|warrant|liabilit)\w*|™|®|\(C\)/gim, 
+        x => `<b style="background-color: yellow">${x}</b>`
+    )
 }
 
 function buildHTML(tableHeaders, tableRows) {
