@@ -4,9 +4,10 @@ const fs = require('fs')
 const path = require('path')
 
 module.exports = async function searchLicenses(inputGlob, options) {
+    console.log('Finding files...')
     const files = await matchFiles(inputGlob, options)
     const licenses = {}    
-    console.log('searching', files.join('\nsearching '))
+    console.log('Processing', files.join('\nProcessing '))
     await Promise.all(
         files.sort().map(async file => {
             const data = await readFile(file, 'utf8')
