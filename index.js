@@ -48,7 +48,7 @@ async function parallelSearch(files) {
                         resolve(licenses)
                     }
                 })
-                const chunkSize = calculateChunkSize(files.length, i)
+                const chunkSize = calculateChunkSize(files.length, numChunks, i)
                 worker.send(files.slice(lastIndex, lastIndex + chunkSize))
                 lastIndex = chunkSize
             }
@@ -59,9 +59,9 @@ async function parallelSearch(files) {
     })
 }
 
-function calculateChunkSize(numUnits, chunkNumber) {
-    return ((numUnits / numCPUs) >> 0) + 
-        (chunkNumber === 0 ? numUnits % numCPUs : 0)
+function calculateChunkSize(numUnits, numChunks, chunkNumber) {
+    return ((numUnits / numChunks) >> 0) + 
+        (chunkNumber === 0 ? numUnits % numChunks : 0)
 }
 
 async function proccessFiles(files) {
