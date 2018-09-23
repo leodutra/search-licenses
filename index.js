@@ -11,7 +11,7 @@ if (!cluster.isMaster) {
     process.on('message', async function(message) {
         console.log(`Worker ${process.pid} is processing...`)
         process.send(await proccessFiles(message));
-        console.log(`Worker ${process.pid} finished`)
+        console.log(`Worker ${process.pid} is terminating`)
         process.exit(0)
     })
 }
@@ -38,7 +38,7 @@ async function parallelSearch(files) {
         let licenses = {}
         let lastIndex = 0
         let responseCount = 0
-        console.log(`Master will start ${numChunks}`)
+        console.log(`Master will start ${numChunks} workers...`)
         try {
             for (let i = 0; i < numChunks; i++) {
                 const worker = cluster.fork()
