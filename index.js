@@ -2,14 +2,72 @@ const glob = require('glob')
 const extract = require('extract-comments')
 const fs = require('fs')
 const path = require('path')
+const cluster = require('cluster')
+const numCPUs = require('os').cpus().length
+const _ = require('lodash')
+
+if (!cluster.isMaster) {
+    console.log(`Worker ${process.pid} created`)
+    process.on('message', async function(message) {
+        console.log(`Worker ${process.pid} is processing...`)
+        process.send(await proccessFiles(message));
+        console.log(`Worker ${process.pid} finished`)
+        process.exit(0)
+    })
+}
 
 module.exports = async function searchLicenses(inputGlob, options) {
+    if (!cluster.isMaster) return
     console.log('Finding files...')
-    const files = await matchFiles(inputGlob, options)
-    const licenses = {}    
-    console.log('Processing', files.join('\nProcessing '))
+    const files = await matchFiles(inputGlob, options)  
+    const licenses = await parallelSearch(files)
+    const tableRows = []
+    Object.keys(licenses).sort().forEach(key => {
+        tableRows.push([
+            licenses[key].files.join('<br>'),
+            keywordsToHTMLBold(toHTML(licenses[key].license))
+        ])
+    })
+    await writeResults(buildHTML(['Files', 'License'], tableRows))
+}
+
+async function parallelSearch(files) {
+    console.log(`Master ${process.pid} is running`)
+    return new Promise((resolve, reject) => {
+        const numChunks = files.length < numCPUs ? 1 : numCPUs
+        let licenses = {}
+        let lastIndex = 0
+        let responseCount = 0
+        try {
+            for (let i = 0; i < numChunks; i++) {
+                const worker = cluster.fork()
+                worker.on('message', message => {
+                    licenses = _.merge(licenses, message)
+                    if (++responseCount === numChunks) {
+                        resolve(licenses)
+                    }
+                })
+                const chunkSize = calculateChunkSize(files.length, i)
+                worker.send(files.slice(lastIndex, lastIndex + chunkSize))
+                lastIndex = chunkSize
+            }
+        }
+        catch(err) {
+            reject(err)
+        }
+    })
+}
+
+function calculateChunkSize(numUnits, chunkNumber) {
+    return ((numUnits / numCPUs) >> 0) + 
+        (chunkNumber === 0 ? numUnits % numCPUs : 0)
+}
+
+async function proccessFiles(files) {
+    const licenses = {}
     await Promise.all(
         files.sort().map(async file => {
+            console.log(`Processing ${file} (PID ${process.pid})`)
             const data = await readFile(file, 'utf8')
             searchLicenseComments(data).forEach(license => {
                 const key = buildLicenseKey(license)
@@ -20,14 +78,7 @@ module.exports = async function searchLicenses(inputGlob, options) {
             })
         })
     )
-    const tableRows = []
-    Object.keys(licenses).sort().forEach(key => {
-        tableRows.push([
-            licenses[key].files.join('<br>'),
-            toHTML(licenses[key].license)
-        ])
-    })
-    await writeResults(buildHTML(['Files', 'License'], tableRows))
+    return licenses
 }
 
 function searchLicenseComments(str) {
@@ -37,11 +88,9 @@ function searchLicenseComments(str) {
 }
 
 function toHTML(str) {
-    return keywordsToHTMLBold(
-        str.replace(/</gm, '&lt;')
-           .replace(/>/gm, '&gt;')
-           .replace(/r?\n/g, '<br>')
-    )
+    return str.replace(/</gm, '&lt;')
+            .replace(/>/gm, '&gt;')
+            .replace(/r?\n/g, '<br>')
 }
 
 function buildLicenseKey(str) {
