@@ -3,32 +3,67 @@ const extract = require('extract-comments')
 const fs = require('fs')
 const path = require('path')
 const cluster = require('cluster')
-const numCPUs = require('os').cpus().length
 const _ = require('lodash')
 
+const numCPUs = require('os').cpus().length
+const allocatedCPU = numCPUs > 2 ? numCPUs - 2 : numCPUs
+
+const licenseMatchers = [
+    // ref: https://en.wikipedia.org/wiki/Comparison_of_free_and_open-source_software_licenses
+    'v?\\d+(?:\\.\\d+){2,}',
+    'copy\\s*?right\\w*',
+    'license\\w*',
+    '(?:all)?\\s+?rights\\s+?reserved\\w*',
+    '\\(C\\)',
+    'warrant\\w+',
+    '™',
+    '®',
+    'MIT',
+    'BSD',
+    '[AL]?GPL',
+    'Unlicense',
+    'Permissive',
+    'Copylefted',
+    'Public\\s+Domain',
+    'ISC',
+    'CC-BY',
+    'Creative\\s+Commons',
+    'CeCILL',
+    'WTFPL',
+    'With\\s+restrictions',
+    'Free\\s+Software',
+    'Open\\s+Source',
+    'Free\\s+License'
+]
+const licenseRegex = new RegExp(`\\b(?:${licenseMatchers.join('|')})\\b`, 'gim')
+
 if (!cluster.isMaster) {
-    console.log(`Worker ${process.pid} created`)
+    console.log(`Worker ${process.pid} started.`)
     process.on('message', async function(message) {
-        console.log(`Worker ${process.pid} is processing...`)
+        console.log(`Worker ${process.pid} received ${message.length} files. Processing...`)
         process.send(await proccessFiles(message));
-        console.log(`Worker ${process.pid} is terminating`)
+        console.log(`Worker ${process.pid} is terminating. Processed ${message.length} files.`)
         process.exit(0)
     })
 }
 
 module.exports = async function searchLicenses(inputGlob, options) {
     if (!cluster.isMaster) return 
+    let startTime = Date.now()
     console.log('Finding files...')
     const files = await matchFiles(inputGlob, options)  
-    const licenses = await parallelSearch(files.sort())
+    console.log(`Found ${files.length} files.`)
+    const licenses = await parallelSearch(files)
     const tableRows = []
     Object.keys(licenses).sort(sortByCleanText).forEach(key => {
         tableRows.push([
-            licenses[key].files.join('<br>'),
+            licenses[key].files.sort().join('<br>'),
             keywordsToHTMLBold(toHTML(licenses[key].license))
         ])
     })
     await writeResults(buildHTML(['Files', 'License'], tableRows))
+    console.log(`Processed ${files.length} files.`)
+    console.log(`Total time: ${((Date.now() - startTime) / 1000).toFixed(1)} seconds.`)
 }
 
 function sortByCleanText(a, b) {
@@ -40,7 +75,7 @@ function sortByCleanText(a, b) {
 async function parallelSearch(files) {
     console.log(`Master ${process.pid} is running`)
     return new Promise((resolve, reject) => {
-        const numChunks = files.length < numCPUs ? files.length : numCPUs
+        const numChunks = files.length < allocatedCPU ? files.length : allocatedCPU  
         let licenses = {}
         let lastIndex = 0
         let responseCount = 0
@@ -54,9 +89,14 @@ async function parallelSearch(files) {
                         resolve(licenses)
                     }
                 })
-                const chunkSize = calculateChunkSize(files.length, numChunks, i)
-                worker.send(files.slice(lastIndex, lastIndex + chunkSize))
-                lastIndex = chunkSize
+                const chunkSize = calculateChunkSize(files.length, numChunks, i === 0)
+                const nextLastIndex = lastIndex + chunkSize
+                worker.send(files.slice(lastIndex, nextLastIndex))
+                console.log(
+                    `Worker ${worker.process.pid} will process chunk from ${lastIndex} to ${nextLastIndex - 1}`,
+                    `(${nextLastIndex - lastIndex} files).`
+                )
+                lastIndex = nextLastIndex
             }
         }
         catch(err) {
@@ -65,17 +105,16 @@ async function parallelSearch(files) {
     })
 }
 
-function calculateChunkSize(numUnits, numChunks, chunkNumber) {
-    return ((numUnits / numChunks) >> 0) + 
-        (chunkNumber === 0 ? numUnits % numChunks : 0)
+function calculateChunkSize(numUnits, numChunks, addRemainder) {
+    return ((numUnits / numChunks) >> 0) + (addRemainder ? numUnits % numChunks : 0)
 }
 
 async function proccessFiles(files) {
     const licenses = {}
     await Promise.all(
         files.map(async file => {
-            console.log(`Processing ${file} (PID ${process.pid})`)
             const data = await readFile(file, 'utf8')
+            console.log(`Worker ${process.pid} is processing ${file}    `)
             searchLicenseComments(data).forEach(license => {
                 const key = buildLicenseKey(license)
                 if (licenses[key] == null) {
@@ -89,18 +128,18 @@ async function proccessFiles(files) {
 }
 
 function searchLicenseComments(str) {
-    const result = []
-    const regex = /v?\d+?(?:\.\d+?){2}|copy\s*?right|license|rights\s+?reserved|warrant|liabilit|™|®|\(C\)/gim
-    const comments = extract(str)
-    for(let i = 0, l = comments.length; i < l; i++) {
-        regex.lastIndex = 0
-        if (comments[i].raw.match(regex)) {
-            result.push(comments[i].raw)
+    return extract(str).reduce((result, comment) => {
+        licenseRegex.lastIndex = 0
+        if (comment.raw.match(licenseRegex)) {
+            result.push(sanitizeLicense(comment.raw))
         }
-    }
-    return result
+        return result
+    }, [])
 }
 
+function sanitizeLicense(str) {
+    return str.replace(/^\s*?\*+\s?/gim, '\n').replace(/^[@#=-\s]+$/gim, '').trim()
+}
 
 const htmlSubstitutions = {
     '<': '&lt;',
@@ -117,7 +156,8 @@ function buildLicenseKey(str) {
 }
 
 function keywordsToHTMLBold(str) {
-    return str.replace(/v?\d+?(?:\.\d+?){2}|(copy\s*?right|license|rights\s+?reserved|warrant|liabilit)\w*|™|®|\(C\)/gim, 
+    licenseRegex.lastIndex = 0
+    return str.replace(licenseRegex,
         x => `<b style="background-color: yellow">${x}</b>`
     )
 }
@@ -151,7 +191,10 @@ function mapToHTMLTags(tagName, contents) {
 
 async function matchFiles(pattern, options) {
     return new Promise((resolve, reject) => 
-        glob(pattern, options, (err, files) => err === null ? resolve(files) : reject(err))
+        glob(pattern, options, (err, files) => err === null
+            ? resolve(files.filter(x => fs.lstatSync(x).isFile()))
+            : reject(err)
+        )
     )
 }
 
