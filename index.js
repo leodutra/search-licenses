@@ -4,190 +4,176 @@ const fs = require('fs')
 const path = require('path')
 const cluster = require('cluster')
 const _ = require('lodash')
+const HtmlTableReporter = require('./src/reporters/html-table-reporter')
+
+const defGlobOptions = { nocase: true }
 
 const numCPUs = require('os').cpus().length
 const allocatedCPU = numCPUs > 2 ? numCPUs - 2 : numCPUs
 
-const licenseMatchers = [
-    // ref: https://en.wikipedia.org/wiki/Comparison_of_free_and_open-source_software_licenses
-    'v?\\d+(?:\\.\\d+){2,}',
-    'copy\\s*?right\\w*',
-    'license\\w*',
-    '(?:all)?\\s+?rights\\s+?reserved\\w*',
-    '\\(C\\)',
-    'warrant\\w+',
-    '™',
-    '®',
-    'MIT',
-    'BSD',
-    '[AL]?GPL',
-    'Unlicense',
-    'Permissive',
-    'Copylefted',
-    'Public\\s+Domain',
-    'ISC',
-    'CC-BY',
-    'Creative\\s+Commons',
-    'CeCILL',
-    'WTFPL',
-    'With\\s+restrictions',
-    'Free\\s+Software',
-    'Open\\s+Source',
-    'Free\\s+License'
-]
-const licenseRegex = new RegExp(`\\b(?:${licenseMatchers.join('|')})\\b`, 'gim')
+const licenseRegex = require('./license-regex')
 
-if (!cluster.isMaster) {
-    console.log(`Worker ${process.pid} started.`)
-    process.on('message', async function(message) {
-        console.log(`Worker ${process.pid} received ${message.length} files. Processing...`)
-        process.send(await proccessFiles(message));
-        console.log(`Worker ${process.pid} is terminating. Processed ${message.length} files.`)
-        process.exit(0)
-    })
-}
-
-module.exports = async function searchLicenses(inputGlob, options) {
+module.exports = async function main(inputGlob, options) {
     if (!cluster.isMaster) return 
     let startTime = Date.now()
     console.log('Finding files...')
-    const files = await matchFiles(inputGlob, options)  
+    const files = await matchFiles(inputGlob, { ...defGlobOptions, ...options })  
     console.log(`Found ${files.length} files.`)
-    const licenses = await parallelSearch(files)
-    const tableRows = []
-    Object.keys(licenses).sort(sortByCleanText).forEach(key => {
-        tableRows.push([
-            licenses[key].files.sort().join('<br>'),
-            keywordsToHTMLBold(toHTML(licenses[key].license))
-        ])
-    })
-    await writeResults(buildHTML(['Files', 'License'], tableRows))
+    const licenses = await processFiles(files)
+    await writeResults('licenses-table-report.html', HtmlTableReporter.report(licenses))
     console.log(`Processed ${files.length} files.`)
     console.log(`Total time: ${((Date.now() - startTime) / 1000).toFixed(1)} seconds.`)
 }
 
-function sortByCleanText(a, b) {
-    a = a.replace(/\W+/gm, '').toLowerCase()
-    b = b.replace(/\W+/gm, '').toLowerCase()
-    return a < b ? -1 : a > b ? 1 : 0
-}
-
-async function parallelSearch(files) {
+async function processFiles(files) {
     console.log(`Master ${process.pid} is running`)
-    return new Promise((resolve, reject) => {
-        const numChunks = files.length < allocatedCPU ? files.length : allocatedCPU  
-        let licenses = {}
-        let lastIndex = 0
-        let responseCount = 0
-        console.log(`Master will start ${numChunks} workers...`)
-        try {
-            for (let i = 0; i < numChunks; i++) {
-                const worker = cluster.fork()
-                worker.on('message', message => {
-                    licenses = _.merge(licenses, message)
-                    if (++responseCount === numChunks) {
-                        resolve(licenses)
-                    }
-                })
-                const chunkSize = calculateChunkSize(files.length, numChunks, i === 0)
-                const nextLastIndex = lastIndex + chunkSize
-                worker.send(files.slice(lastIndex, nextLastIndex))
-                console.log(
-                    `Worker ${worker.process.pid} will process chunk from ${lastIndex} to ${nextLastIndex - 1}`,
-                    `(${nextLastIndex - lastIndex} files).`
-                )
-                lastIndex = nextLastIndex
-            }
-        }
-        catch(err) {
-            reject(err)
+    return new Promise(resolve => {
+        const queue = files.slice() // clone
+        let results = {}
+        let doneCount = 0
+        let readyCount = 0
+        console.log(`Master will start ${allocatedCPU} workers...`)
+        const workers = []
+        for (let i = 0; i < allocatedCPU; i++) {
+            const worker = cluster.fork()
+            const workerId = i
+            worker.on('message', ({ status, data }) => {
+                switch(status) {
+                    case 'done':
+                        if (data) {
+                            results = _.merge(results, data)
+                        }
+                        if (++doneCount === files.length) {
+                            resolve(results)
+                        }
+                        worker.send({ workerId, data: queue.pop() })
+                        break
+                    case 'ready':
+                        if (++readyCount === allocatedCPU) {
+                            workers.forEach((x, i) => x.send({ workerId, data: queue.pop() }))
+                        }
+                        break
+                }              
+            })
+            workers.push(worker)
         }
     })
 }
 
-function calculateChunkSize(numUnits, numChunks, addRemainder) {
-    return ((numUnits / numChunks) >> 0) + (addRemainder ? numUnits % numChunks : 0)
-}
-
-async function proccessFiles(files) {
-    const licenses = {}
-    await Promise.all(
-        files.map(async file => {
-            const data = await readFile(file, 'utf8')
-            console.log(`Worker ${process.pid} is processing ${file}    `)
-            searchLicenseComments(data).forEach(license => {
-                const key = buildLicenseKey(license)
-                if (licenses[key] == null) {
-                    licenses[key] = { license: license, files: [] }
-                }
-                licenses[key].files.push(file) 
-            })
-        })
-    )
-    return licenses
-}
-
-function searchLicenseComments(str) {
-    return extract(str).reduce((result, comment) => {
-        licenseRegex.lastIndex = 0
-        if (comment.raw.match(licenseRegex)) {
-            result.push(sanitizeLicense(comment.raw))
+if (cluster.isWorker) {
+    console.log(`Worker is starting...`)
+    let first = true 
+    process.on('message', async function({ workerId, data }) {
+        try {
+            if (first) {
+                console.log(`Worker ${workerId} started.`)
+                first = false
+            }
+            if (data) {
+                console.log(`Worker ${workerId} is processing ${data}`)
+                process.send({
+                    workerId,
+                    status: 'done',
+                    data: await doWorkerProcess(data)
+                })
+            }
+            else {
+                console.log(`Worker ${workerId} is terminating.`)
+                process.exit(0)
+            }
         }
-        return result
-    }, [])
+        catch(err) {
+            console.error(err)
+        }
+    })
+    process.send({ status: 'ready' })
+}
+
+async function doWorkerProcess(file) {
+    const data = await readFile(file, 'utf8')
+    const licenses = {}
+    
+    function addLicense(license) {
+        const key = buildLicenseKey(license)
+        if (licenses[key] == null) {
+            licenses[key] = { license: license, files: [] }
+        }
+        licenses[key].files.push(file) 
+    }
+    
+    extractJavaScriptLicenseComments(data).forEach(addLicense) 
+    extractASPXLicenseComments(data).forEach(addLicense) 
+    extractVBLicenseComments(data).forEach(addLicense) 
+
+    return licenses 
+}
+
+
+
+
+function extractJavaScriptLicenseComments(str) {
+    return filterLicenseComments(extract(str).map(comment => comment.raw))
+}
+
+function extractASPXLicenseComments(str) {
+    const comments = []
+    regexMultiMatch(str, /<%--([^-]+?)--%>/gim, comment => comments.push(comment))
+    regexMultiMatch(str, /@\*([^*]+?)\*@/gim, comment => comments.push(comment))
+    return filterLicenseComments(comments)
+}
+
+function extractVBLicenseComments(str) {
+    const comments = []
+    regexMultiMatch(str, /^\s*\bREM\b(.+)$/gim, comment => comments.push(comment))
+    regexMultiMatch(str, /^\s*'([^']+)$/gim, comment => comments.push(comment))
+    return filterLicenseComments(comments)
+}
+
+function filterLicenseComments(comments) {
+    const result = []
+    comments.forEach(comment => {
+        const licenseData = extractLicenseFromComment(comment)
+        if (licenseData) {
+            result.push(licenseData)
+        }
+    })
+    return result
+}
+
+function extractLicenseFromComment(comment) {
+    licenseRegex.lastIndex = 0
+    const match = comment.match(licenseRegex)
+    return match ? sanitizeLicense(comment) : null
+}
+
+function regexMultiMatch(str, regex, fn) {
+    // clone for no regex.lastIndex problems
+    var regexClone = new RegExp(
+        regex.source, 
+        regex.flags || (regex.global ? 'g' : '') + (regex.ignoreCase ? 'i' : '') + (regex.multiline ? 'm' : '')
+    )
+    var match = regexClone.exec(str)
+    if (match) {
+        fn.apply(null, match)
+    }
+    if (regex.global) {
+        while((match = regexClone.exec(str))) {
+            fn.apply(null, match)
+        }
+    }
 }
 
 function sanitizeLicense(str) {
     return str.replace(/^\s*?\*+\s?/gim, '\n').replace(/^[@#=-\s]+$/gim, '').trim()
 }
 
-const htmlSubstitutions = {
-    '<': '&lt;',
-    '>': '&lt;',
-    '\r\n': '<br>',
-    '\n': '<br>'
-}
-function toHTML(str) {   
-    return str.replace(/(?:<|>|\r?\n)/gm, x => htmlSubstitutions[x])
-}
+
 
 function buildLicenseKey(str) {
     return str.replace(/(?:\s+|\r?\n)/gm, ' ').trim()
 }
 
-function keywordsToHTMLBold(str) {
-    licenseRegex.lastIndex = 0
-    return str.replace(licenseRegex,
-        x => `<b style="background-color: yellow">${x}</b>`
-    )
-}
 
-function buildHTML(tableHeaders, tableRows) {
-    return `
-        <!DOCTYPE html>
-        <head><title>Search license results</title></head>
-        <body>
-            <table border="1">
-                <thead>
-                    <tr>
-                        ${mapToHTMLTags('th', tableHeaders)}
-                    </tr>
-                </thead>
-                <tbody>
-                    ${tableRows.map(tr => `
-                        <tr>
-                            ${mapToHTMLTags('td', tr)}
-                        </tr>
-                    `).join('\n')}
-                </tbody>
-            </table>
-        </body>
-    `
-}
-
-function mapToHTMLTags(tagName, contents) {
-    return contents.map(inner => `<${tagName}>${inner}</${tagName}>`).join('\n')
-}
 
 async function matchFiles(pattern, options) {
     return new Promise((resolve, reject) => 
@@ -204,8 +190,9 @@ async function readFile(fileName, type) {
     )
 }
 
-async function writeResults(data) {
-    const resultsPath = path.resolve(process.cwd(), 'search-results.html')
+async function writeResults(filePath, data) {
+    if (!filePath) throw new TypeError(`Missing filePath for ${writeResults.name}`)
+    const resultsPath = path.resolve(process.cwd(), filePath)
     console.log('\nResults reported on', resultsPath)
     fs.writeFileSync(resultsPath, data)
 }

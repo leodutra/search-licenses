@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const searchLicenses = require('./index');
+const main = require('./index');
 
 const cli = require('commander');
 
@@ -12,4 +12,4 @@ cli
 cli.parse(process.argv);
 
 
-searchLicenses(cli.args[0])
+main(cli.args[0])
