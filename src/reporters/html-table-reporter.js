@@ -9,7 +9,6 @@ module.exports = class HtmlTableReporter {
 }
 
 function buildHTML(licenses) {
-    const tableHeaders = ['Files', 'License']
     const tableRows = []
     Object.keys(licenses).sort(sortByCleanText).forEach(key => {
         tableRows.push([
@@ -37,7 +36,8 @@ function buildHTML(licenses) {
             <table border="1">
                 <thead>
                     <tr>
-                        ${mapToHTMLTags('th', tableHeaders)}
+                        <th>Files</th>
+                        <th>License</th>
                     </tr>
                 </thead>
                 <tbody>
