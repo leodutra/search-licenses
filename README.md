@@ -1,6 +1,6 @@
 # search-licenses
 
-Search for license information inside JavaScript files
+Search for license information inside textual files
 
 ### Running
 1. clone the project
