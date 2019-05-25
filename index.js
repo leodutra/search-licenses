@@ -92,88 +92,96 @@ if (cluster.isWorker) {
 async function doWorkerProcess(file) {
     const data = await readFile(file, 'utf8')
     const licenses = {}
-    
-    function addLicense(license) {
-        const key = buildLicenseKey(license)
+    const comments = [
+        ...extractJavaScriptLicenseComments(data),
+        ...extractASPXLicenseComments(data),
+        ...extractVBLicenseComments(data) 
+    ]
+    for(let i = 0, l = comments.length; i < l; i++) {
+        const key = buildLicenseKey(comments[i])
         if (licenses[key] == null) {
-            licenses[key] = { license: license, files: [] }
+            licenses[key] = { license: comments[i], files: [] }
         }
         licenses[key].files.push(file) 
     }
-    
-    extractJavaScriptLicenseComments(data).forEach(addLicense) 
-    extractASPXLicenseComments(data).forEach(addLicense) 
-    extractVBLicenseComments(data).forEach(addLicense) 
-
     return licenses 
 }
 
-
-
-
 function extractJavaScriptLicenseComments(str) {
-    return filterLicenseComments(extract(str).map(comment => comment.raw))
+    return filterLicenseComments(
+        extract(str).map(comment => comment.raw)
+    )
 }
 
 function extractASPXLicenseComments(str) {
     const comments = []
-    regexMultiMatch(str, /<%--([^-]+?)--%>/gim, comment => comments.push(comment))
-    regexMultiMatch(str, /@\*([^*]+?)\*@/gim, comment => comments.push(comment))
+    matchPattern(str, /<%--([^-]+?)--%>/gim).forEach(match => comments.push(match[0]))
+    matchPattern(str, /@\*([^*]+?)\*@/gim).forEach(match => comments.push(match[0]))
     return filterLicenseComments(comments)
 }
 
 function extractVBLicenseComments(str) {
     const comments = []
-    regexMultiMatch(str, /^\s*\bREM\b(.+)$/gim, comment => comments.push(comment))
-    regexMultiMatch(str, /^\s*'([^']+)$/gim, comment => comments.push(comment))
+    matchPattern(str, /^\s*\bREM\b(.+)$/gim).forEach(match => comments.push(match[0]))
+    matchPattern(str, /^\s*'([^']+)$/gim).forEach(match => comments.push(match[0]))
     return filterLicenseComments(comments)
 }
 
 function filterLicenseComments(comments) {
     const result = []
-    comments.forEach(comment => {
-        const licenseData = extractLicenseFromComment(comment)
+    for(let i = 0, l = comments.length; i < l; i++) {
+        const licenseData = extractLicenseFromComment(comments[i])
         if (licenseData) {
             result.push(licenseData)
         }
-    })
+    }
     return result
 }
 
 function extractLicenseFromComment(comment) {
     licenseRegex.lastIndex = 0
-    const match = comment.match(licenseRegex)
-    return match ? sanitizeLicense(comment) : null
+    return comment.match(licenseRegex)
+        ? sanitizeLicense(comment)
+        : null
 }
 
-function regexMultiMatch(str, regex, fn) {
-    // clone for no regex.lastIndex problems
-    var regexClone = new RegExp(
-        regex.source, 
-        regex.flags || (regex.global ? 'g' : '') + (regex.ignoreCase ? 'i' : '') + (regex.multiline ? 'm' : '')
+function matchPattern(str, regexp, fn) {
+    const regexpClone = new RegExp(
+        regexp.source,
+        regexp.flags ||
+            (regexp.global ? 'g' : '') +
+            (regexp.ignoreCase ? 'i' : '') +
+            (regexp.multiline ? 'm' : '') +
+            (regexp.dotAll ? 's' : '') +
+            (regexp.unicode ? 'u' : '') +
+            (regexp.sticky ? 'y' : '')
     )
-    var match = regexClone.exec(str)
-    if (match) {
-        fn.apply(null, match)
-    }
-    if (regex.global) {
-        while((match = regexClone.exec(str))) {
-            fn.apply(null, match)
+    regexpClone.lastIndex = 0
+    const matches = []
+    let match
+    if (regexpClone.global) { 
+        while(match = regexpClone.exec(str)) {
+            matches.push(match)
         }
     }
+    else {
+        if (match = regexpClone.exec(str)) {
+            matches.push(match)
+        }
+    }
+    return matches
 }
 
 function sanitizeLicense(str) {
-    return str.replace(/^\s*?\*+\s?/gim, '\n').replace(/^[@#=-\s]+$/gim, '').trim()
+    return str.replace(/^\s*?\*+\s?/gim, '\n')
+        .replace(/^[@#=-\s]+$/gim, '')
+        .trim()
 }
-
 
 
 function buildLicenseKey(str) {
-    return str.replace(/(?:\s+|\r?\n)/gm, ' ').trim()
+    return str.replace(/(?:\s+|\r?\n)/gm, '\u0020').trim()
 }
-
-
 
 async function matchFiles(pattern, options) {
     return new Promise((resolve, reject) => 
@@ -186,7 +194,9 @@ async function matchFiles(pattern, options) {
 
 async function readFile(fileName, type) {
     return new Promise((resolve, reject) => 
-        fs.readFile(fileName, type, (err, data) => err ? reject(err) : resolve(data))
+        fs.readFile(fileName, type, (err, data) => 
+            err ? reject(err) : resolve(data)
+        )
     )
 }
 
