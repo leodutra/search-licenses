@@ -1,5 +1,5 @@
 const _ = require('lodash')
-const licenseRegex = require('../../license-regex')
+const licenseRegex = require('../lib/license-regex')
 
 module.exports = class HtmlTableReporter {
     static report(data) {

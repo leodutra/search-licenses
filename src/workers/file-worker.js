@@ -2,7 +2,7 @@ module.exports = async function fileWorker(file) {
     console.log(`Processing file: ${file}`)
     const fsPromises = require('fs').promises
     const extract = require('extract-comments')
-    const licenseRegex = require('./license-regex')
+    const licenseRegex = require('./src/lib/license-regex')
     
     const data = await fsPromises.readFile(file, 'utf8')
     const licenses = {}
@@ -21,7 +21,7 @@ module.exports = async function fileWorker(file) {
     }
     return licenses 
 
-    
+
     function extractJavaScriptLicenseComments(str) {
         return filterLicenseComments(
             extract(str).map(comment => comment.raw)
