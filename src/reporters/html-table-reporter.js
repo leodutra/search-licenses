@@ -1,4 +1,3 @@
-
 const _ = require('lodash')
 const licenseRegex = require('../../license-regex')
 
@@ -10,10 +9,10 @@ module.exports = class HtmlTableReporter {
 
 function buildHTML(licenses) {
     const tableRows = []
-    Object.keys(licenses).sort(sortByCleanText).forEach(key => {
+    Object.getOwnPropertyNames(licenses || {}).sort(sortByCleanText).forEach(key => {
         tableRows.push([
             licenses[key].files.sort().join('<br>'),
-            keywordsToHTMLBold(toHTML(licenses[key].license))
+            keywordsToHTMLBold(toHTML(removeBlankLines(licenses[key].license)))
         ])
     })
     return `
@@ -41,11 +40,12 @@ function buildHTML(licenses) {
                     </tr>
                 </thead>
                 <tbody>
-                    ${tableRows.map(tr => `
+                    ${tableRows.map(cells => `
                         <tr>
-                            ${mapToHTMLTags('td', tr)}
+                            <td style="vertical-align: top">${cells[0]}</td>
+                            <td style="vertical-align: top; font-size: 11px">${cells[1]}</td>
                         </tr>
-                    `).join('\n')}
+                    `).join('\n') || '<tr><td colspan="2">No license was found.</td></tr>'}
                 </tbody>
             </table>
         </body>
@@ -79,7 +79,11 @@ function sortByCleanText(a, b) {
 
 function keywordsToHTMLBold(str) {
     licenseRegex.lastIndex = 0
-    return str.replace(licenseRegex,
-        x => `<b style="background-color: yellow">${x}</b>`
+    return str.replace(licenseRegex, x => 
+        `<b style="background-color: yellow">${x}</b>`
     )
+}
+
+function removeBlankLines(text) {
+    return text.replace(/(\r?\n)+/gm, '$1')
 }
