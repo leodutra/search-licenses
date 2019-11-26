@@ -1,3 +1,5 @@
+// Keep this in an independent module
+
 const licenseMatchers = [
     // ref: https://en.wikipedia.org/wiki/Comparison_of_free_and_open-source_software_licenses
     'v?\\d+(?:\\.\\d+){2,}',
@@ -26,4 +28,6 @@ const licenseMatchers = [
     'Free\\s+License'
 ]
 
-module.exports = new RegExp(`\\b(?:${licenseMatchers.join('|')})\\b`, 'gim')
+const source = `\\b(?:${licenseMatchers.join('|')})\\b`
+
+module.exports = () => new RegExp(source, 'gim')

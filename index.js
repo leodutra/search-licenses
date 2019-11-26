@@ -3,51 +3,56 @@ const fs = require('fs')
 const path = require('path')
 const _ = require('lodash')
 const microjob = require('microjob')
+const util = require('util')
+const globPromise = util.promisify(glob)
+
 const HtmlTableReporter = require('./src/reporters/html-table-reporter')
 const fileWorker = require('./src/workers/file-worker')
 
-const defGlobOptions = { nocase: true }
+const NUM_CPUS = require('os').cpus().length
+const MAX_ALLOCATED_CPU = NUM_CPUS > 2 ? NUM_CPUS - 2 : NUM_CPUS
 
-const numCPUs = require('os').cpus().length
-const allocatedCPU = numCPUs > 2 ? numCPUs - 2 : numCPUs
+const buildLicenseKey = str => str.trim().toLowerCase().replace(/\W|[aeiouwy]/gm, '')
 
-module.exports = async function main(inputGlob, options) {
-    const startTime = Date.now()   
-    console.log('Finding files...')
-    const files = await matchFiles(inputGlob, { ...defGlobOptions, ...options })  
-    console.log(`Found ${files.length} files.`)
-    const licenses = await processFiles(files)
-    await writeResults('licenses-table-report.html', HtmlTableReporter.report(licenses))
-    console.log(`Processed ${files.length} files.`)
-    console.log(`Total time: ${((Date.now() - startTime) / 1000).toFixed(1)} seconds.`)
-}
+const globFiles = async (pattern, options) =>
+    globPromise(pattern, options)
+        .then(files => files.filter(x => fs.lstatSync(x).isFile()))
 
-async function processFiles(files) {
-    let results = null
+const mergeByLicense = fileMetadataArray =>
+    Object.values(
+        Object.fromEntries(
+            fileMetadataArray
+                .reduce(
+                    (licenseMap, fileMeta) => {
+                        fileMeta.licenses.forEach(license => {
+                            const key = buildLicenseKey(license)
+                            if (licenseMap.has(key)) {
+                                licenseMap.get(key).files.push(fileMeta.filepath)
+                            } else {
+                                licenseMap.set(key, { license, files: [fileMeta.filepath] })
+                            }
+                        })
+                        return licenseMap
+                    },
+                    new Map()
+                )
+                .entries()
+        )
+    )
+
+async function processFiles(files, maxWorkers = MAX_ALLOCATED_CPU) {
     try {
-        await microjob.start({maxWorkers: allocatedCPU})
-        results = (
-            await Promise.all(
-                files.map(async file => await microjob.job(fileWorker, { data: file }))
-            )
-        ).reduce((curr, x) => x ? _.merge(curr, x) : curr, {})
+        await microjob.start({ maxWorkers })
+        const processFile = async filepath => await microjob.job(fileWorker, { data: filepath })
+        return mergeByLicense(await Promise.all(files.map(processFile)))
     }
-    catch(error) {
+    catch (error) {
         console.error(error)
+        throw error
     }
     finally {
         await microjob.stop()
     }
-    return results
-}
-
-async function matchFiles(pattern, options) {
-    return new Promise((resolve, reject) => 
-        glob(pattern, options, (err, files) => err === null
-            ? resolve(files.filter(x => fs.lstatSync(x).isFile()))
-            : reject(err)
-        )
-    )
 }
 
 async function writeResults(filePath, data) {
@@ -55,4 +60,12 @@ async function writeResults(filePath, data) {
     const resultsPath = path.resolve(process.cwd(), filePath)
     console.log('\nResults reported on', resultsPath)
     fs.writeFileSync(resultsPath, data)
+}
+
+module.exports = {
+    MAX_ALLOCATED_CPU,
+    globFiles,
+    HtmlTableReporter,
+    processFiles,
+    writeResults,
 }
