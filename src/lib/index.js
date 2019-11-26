@@ -40,8 +40,9 @@ const mergeByLicense = fileMetadataArray =>
 async function processFiles (files, maxWorkers = DEF_ALLOCATED_CPU) {
     try {
         await microjob.start({ maxWorkers })
-        const processFile = async filepath => microjob.job(fileWorker, { data: filepath })
-        return mergeByLicense(await Promise.all(files.map(processFile)))
+        const processFiles = files =>
+            Promise.all(files.map(filepath => microjob.job(fileWorker, { data: filepath })))
+        return mergeByLicense(await processFiles(files))
     } catch (error) {
         console.error(error)
         throw error
