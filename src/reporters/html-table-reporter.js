@@ -65,7 +65,7 @@ function buildHTML(licenses) {
                 <thead>
                     <tr>
                         <th>Files</th>
-                        <th>License</th>
+                        <th>Possible License</th>
                     </tr>
                 </thead>
                 <tbody>
