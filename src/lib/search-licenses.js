@@ -1,4 +1,3 @@
-
 const extract = require('extract-comments')
 const licenseRegex = require('./license-regex')
 
@@ -11,8 +10,7 @@ const sanitizeLicense = str =>
         .replace(/^[@#=-\s]+$/gim, '')
         .trim()
 
-
-module.exports = function searchLicenses(text) {
+module.exports = function searchLicenses (text) {
     let comments = [
         ...extractJavaScriptComments(text),
         ...extractASPXComments(text),
@@ -26,22 +24,21 @@ module.exports = function searchLicenses(text) {
         .filter(x => x)
 }
 
-
-function extractASPXComments(str) {
+function extractASPXComments (str) {
     const comments = []
     matchPattern(str, /<%--([^-]+?)--%>/gim).forEach(match => comments.push(match[0]))
     matchPattern(str, /@\*([^*]+?)\*@/gim).forEach(match => comments.push(match[0]))
     return comments
 }
 
-function extractVBComments(str) {
+function extractVBComments (str) {
     const comments = []
     matchPattern(str, /^\s*\bREM\b(.+)$/gim).forEach(match => comments.push(match[0]))
     matchPattern(str, /^\s*'([^']+)$/gim).forEach(match => comments.push(match[0]))
     return comments
 }
 
-function matchPattern(str, regexp, fn) {
+function matchPattern (str, regexp, fn) {
     const regexpClone = new RegExp(
         regexp.source,
         regexp.flags ||
@@ -56,12 +53,11 @@ function matchPattern(str, regexp, fn) {
     const matches = []
     let match
     if (regexpClone.global) {
-        while (match = regexpClone.exec(str)) {
+        while ((match = regexpClone.exec(str))) {
             matches.push(match)
         }
-    }
-    else {
-        if (match = regexpClone.exec(str)) {
+    } else {
+        if ((match = regexpClone.exec(str))) {
             matches.push(match)
         }
     }

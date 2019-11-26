@@ -1,8 +1,7 @@
-const _ = require('lodash')
 const licenseRegex = require('../lib/license-regex')
 
 module.exports = class HtmlTableReporter {
-    static report(data) {
+    static report (data) {
         return buildHTML(data)
     }
 }
@@ -15,7 +14,7 @@ const sortByLicenseProp = (a, b) => {
 
 const removeBlankLines = text => text.replace(/(\r?\n)+/gm, '$1')
 
-const keywordsToHTMLBold = str => 
+const keywordsToHTMLBold = str =>
     str.replace(licenseRegex(), x => `<b style="background-color: yellow">${x}</b>`)
 
 const toHTML = (() => {
@@ -26,22 +25,22 @@ const toHTML = (() => {
         '\n': '<br>'
     }
     return str => str && str.replace(
-        new RegExp(Object.keys(htmlSubstitutions).join('|'), 'gim'), 
+        new RegExp(Object.keys(htmlSubstitutions).join('|'), 'gim'),
         x => htmlSubstitutions[x]
     )
 })()
 
-function buildHTML(licenses) {
+function buildHTML (licenses) {
     const tableRows = licenses
         .sort(sortByLicenseProp)
-        .reduce((rows, licenseMeta) => 
+        .reduce((rows, licenseMeta) =>
             rows.concat([
                 [
                     licenseMeta.files.sort().join('<br>'),
                     keywordsToHTMLBold(toHTML(removeBlankLines(licenseMeta.license)))
                 ]
             ]),
-            []
+        []
         )
     // return console.log(tableRows)
     return `
