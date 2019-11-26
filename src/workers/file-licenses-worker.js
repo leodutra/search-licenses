@@ -1,4 +1,4 @@
-module.exports = async function fileWorker (filepath) {
+module.exports = async function fileLicensesWorker (filepath) {
     console.log(`Processing file: ${filepath}`)
     const searchLicenses = require('./src/lib/search-licenses')
     return {

@@ -4,7 +4,7 @@ const microjob = require('microjob')
 const util = require('util')
 const globPromise = util.promisify(glob)
 
-const fileWorker = require('../workers/file-worker')
+const fileLicensesWorker = require('../workers/file-licenses-worker')
 
 const NUM_CPUS = require('os').cpus().length
 const DEF_ALLOCATED_CPU = NUM_CPUS > 2 ? NUM_CPUS - 2 : NUM_CPUS
@@ -37,12 +37,19 @@ const mergeByLicense = fileMetadataArray =>
         )
     )
 
+const parallelProcessing = microjob => files =>
+    Promise.all(
+        files.map(
+            filepath => microjob.job(fileLicensesWorker, { data: filepath })
+        )
+    )
+
 async function processFiles (files, maxWorkers = DEF_ALLOCATED_CPU) {
     try {
         await microjob.start({ maxWorkers })
-        const processFiles = files =>
-            Promise.all(files.map(filepath => microjob.job(fileWorker, { data: filepath })))
-        return mergeByLicense(await processFiles(files))
+        return mergeByLicense(
+            await parallelProcessing(microjob)(files)
+        )
     } catch (error) {
         console.error(error)
         throw error
